@@ -14,9 +14,14 @@ body {
 }
 
 .tree-node {
+  display: block;           /* ensures children go below, not beside */
   margin: 3px 0;
-  display: flex;
+}
+
+.tree-node > div {
+  display: inline-flex;     /* layout for toggle + label only */
   align-items: center;
+  cursor: pointer;
 }
 
 .tree-node .toggle {
