@@ -1,12 +1,35 @@
 const container = document.getElementById("tree-container");
-const rankOrder = ["DOMAIN", "KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY", "GENUS"];
+const rankOrder = ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY", "GENUS"];
+
+// Define root kingdoms manually
+const roots = [
+  "Animalia",
+  "Plantae",
+  "Fungi",
+  "Bacteria",
+  "Protozoa",
+  "Chromista",
+  "Viruses"
+];
 
 initRoot();
 
 async function initRoot() {
-  const rootTaxa = await fetchKingdoms();
-  for (const taxon of rootTaxa) {
-    createNode(taxon, container, 0);
+  for (const name of roots) {
+    const taxon = await matchTaxon(name);
+    if (taxon) createNode(taxon, container, 0);
+  }
+}
+
+async function matchTaxon(name) {
+  const url = `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(name)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.usageKey) {
+    return await fetchTaxonWithCommonName(data.usageKey);
+  } else {
+    console.warn(`Taxon not found or matched: ${name}`);
+    return null;
   }
 }
 
@@ -47,30 +70,16 @@ async function createNode(taxon, parentElement, depth) {
   if (!hasChildren) toggle.classList.add("invisible");
 }
 
-// 📥 Get top-level Kingdoms to start
-async function fetchKingdoms() {
-  const url = `https://api.gbif.org/v1/species/search?rank=KINGDOM&limit=100`;
-  const res = await fetch(url);
-  const data = await res.json();
-
-  return Promise.all(
-    data.results.map(t =>
-      fetchTaxonWithCommonName(t.key)
-    )
-  );
-}
-
-// 📥 Load next rank children
 async function fetchChildren(taxonKey, parentRank) {
-  const url = `https://api.gbif.org/v1/species/${taxonKey}/children?limit=1000`;
+  const url = `https://api.gbif.org/v1/species/${taxonKey}/children?limit=500`;
   const res = await fetch(url);
   const data = await res.json();
 
-  let targetRankIndex = parentRank ? rankOrder.indexOf(parentRank) + 1 : 1;
+  const targetRankIndex = rankOrder.indexOf(parentRank) + 1;
+  if (targetRankIndex < 0 || targetRankIndex >= rankOrder.length) return [];
+
   const targetRank = rankOrder[targetRankIndex];
-
   const filtered = data.results.filter(t => t.rank === targetRank);
-
   return Promise.all(filtered.map(t => fetchTaxonWithCommonName(t.key)));
 }
 
@@ -83,7 +92,6 @@ async function fetchTaxonWithCommonName(taxonKey) {
   const url = `https://api.gbif.org/v1/species/${taxonKey}`;
   const res = await fetch(url);
   const data = await res.json();
-
   return {
     key: data.key,
     scientificName: data.scientificName,
