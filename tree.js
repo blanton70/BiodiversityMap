@@ -1,7 +1,14 @@
 const container = document.getElementById("tree-container");
 
-// Start with the actual root of life: taxonKey = 1 (GBIF)
-createNode(1, container, 0);
+// Start at taxonKey = 0 to get true root (top-level kingdoms)
+initRoot();
+
+async function initRoot() {
+  const children = await fetchChildren(0); // Top-level domains/kingdoms
+  for (const child of children) {
+    createNode(child.key, container, 0);
+  }
+}
 
 async function createNode(taxonKey, parentElement, depth) {
   const taxon = await fetchTaxonWithCommonName(taxonKey);
@@ -13,6 +20,12 @@ async function createNode(taxonKey, parentElement, depth) {
   const toggle = document.createElement("div");
   toggle.className = "toggle";
   toggle.textContent = "+";
+
+  const label = document.createElement("div");
+  label.className = "tree-label";
+  label.innerText = `${taxon.scientificName}${taxon.commonName ? ` (${taxon.commonName})` : ""}`;
+
+  // Toggle behavior
   toggle.onclick = async (e) => {
     e.stopPropagation();
     if (toggle.textContent === "+") {
@@ -28,17 +41,12 @@ async function createNode(taxonKey, parentElement, depth) {
     }
   };
 
-  const label = document.createElement("div");
-  label.className = "tree-label";
-  label.innerText = `${taxon.scientificName}${taxon.commonName ? ` (${taxon.commonName})` : ""}`;
-
   wrapper.appendChild(toggle);
   wrapper.appendChild(label);
   wrapper.setAttribute("data-depth", depth);
 
   parentElement.appendChild(wrapper);
 
-  // Peek at children to decide if this node is expandable
   const hasChildren = await hasChildTaxa(taxon.key);
   if (!hasChildren) toggle.classList.add("invisible");
 }
@@ -55,7 +63,6 @@ async function fetchChildren(taxonKey) {
   const res = await fetch(url);
   const data = await res.json();
 
-  // Filter to taxonomic ranks we're interested in
   return data.results.filter(t =>
     ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY", "GENUS"].includes(t.rank)
   );
