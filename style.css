@@ -1,0 +1,28 @@
+body, html {
+  margin: 0;
+  height: 100%;
+  font-family: sans-serif;
+}
+
+#container {
+  display: flex;
+  height: 100vh;
+}
+
+#sidebar {
+  width: 400px;
+  overflow-y: auto;
+  border-right: 1px solid #ccc;
+  padding: 10px;
+  background-color: #f9f9f9;
+}
+
+.node circle {
+  fill: steelblue;
+  cursor: pointer;
+}
+
+.node text {
+  font-size: 12px;
+  margin-left: 5px;
+}
