@@ -1,77 +1,53 @@
-// Entry point: fetch the root taxon (Life = taxonKey 1)
-buildTree(1);
+const container = document.getElementById("tree-container");
 
-async function buildTree(taxonKey) {
-  const rootData = await fetchTaxonWithCommonName(taxonKey);
-  const root = d3.hierarchy(rootData, d => d.children);
+// Start with the actual root of life: taxonKey = 1 (GBIF)
+createNode(1, container, 0);
 
-  const width = 360;
-  const dx = 10;
-  const dy = 180;
+async function createNode(taxonKey, parentElement, depth) {
+  const taxon = await fetchTaxonWithCommonName(taxonKey);
 
-  const treeLayout = d3.tree().nodeSize([dx, dy]);
-  const diagonal = d3.linkHorizontal().x(d => d.y).y(d => d.x);
+  const wrapper = document.createElement("div");
+  wrapper.className = "tree-node";
+  wrapper.style.paddingLeft = `${depth * 20}px`;
 
-  const svg = d3.select("#tree")
-    .append("svg")
-    .attr("viewBox", [-dy / 3, -dx * 10, width, dx * 40])
-    .style("font", "10px sans-serif")
-    .style("user-select", "none");
+  const toggle = document.createElement("div");
+  toggle.className = "toggle";
+  toggle.textContent = "+";
+  toggle.onclick = async (e) => {
+    e.stopPropagation();
+    if (toggle.textContent === "+") {
+      toggle.textContent = "−";
+      const children = await fetchChildren(taxon.key);
+      for (const child of children) {
+        createNode(child.key, wrapper, depth + 1);
+      }
+    } else {
+      toggle.textContent = "+";
+      const toRemove = wrapper.querySelectorAll(`.tree-node[data-depth="${depth + 1}"]`);
+      toRemove.forEach(el => el.remove());
+    }
+  };
 
-  const g = svg.append("g");
+  const label = document.createElement("div");
+  label.className = "tree-label";
+  label.innerText = `${taxon.scientificName}${taxon.commonName ? ` (${taxon.commonName})` : ""}`;
 
-  let i = 0;
+  wrapper.appendChild(toggle);
+  wrapper.appendChild(label);
+  wrapper.setAttribute("data-depth", depth);
 
-  function update(source) {
-    const treeData = treeLayout(root);
-    const nodes = treeData.descendants();
-    const links = treeData.links();
+  parentElement.appendChild(wrapper);
 
-    const node = g.selectAll("g.node")
-      .data(nodes, d => d.id || (d.id = ++i));
+  // Peek at children to decide if this node is expandable
+  const hasChildren = await hasChildTaxa(taxon.key);
+  if (!hasChildren) toggle.classList.add("invisible");
+}
 
-    const nodeEnter = node.enter().append("g")
-      .attr("class", "node")
-      .attr("transform", d => `translate(${d.y},${d.x})`)
-      .on("click", async (event, d) => {
-        if (d.children) {
-          d._children = d.children;
-          d.children = null;
-        } else {
-          if (!d._children && !d.children) {
-            const children = await fetchChildren(d.data.key);
-            d.children = children.map(child => d3.hierarchy(child));
-          } else {
-            d.children = d._children;
-            d._children = null;
-          }
-        }
-        update(d);
-      });
-
-    nodeEnter.append("circle").attr("r", 4);
-
-    nodeEnter.append("text")
-      .attr("x", 8)
-      .attr("dy", "0.31em")
-      .text(d => `${d.data.scientificName}${d.data.commonName ? " (" + d.data.commonName + ")" : ""}`);
-
-    node.exit().remove();
-
-    const link = g.selectAll("path.link")
-      .data(links, d => d.target.id);
-
-    link.enter().append("path")
-      .attr("class", "link")
-      .attr("fill", "none")
-      .attr("stroke", "#ccc")
-      .attr("stroke-width", 1.5)
-      .attr("d", diagonal);
-
-    link.exit().remove();
-  }
-
-  update(root);
+async function hasChildTaxa(taxonKey) {
+  const url = `https://api.gbif.org/v1/species/${taxonKey}/children?limit=1`;
+  const res = await fetch(url);
+  const data = await res.json();
+  return data.results.length > 0;
 }
 
 async function fetchChildren(taxonKey) {
@@ -79,15 +55,10 @@ async function fetchChildren(taxonKey) {
   const res = await fetch(url);
   const data = await res.json();
 
-  const genusOrHigher = data.results.filter(t => {
-    return ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY", "GENUS"].includes(t.rank);
-  });
-
-  const withCommonNames = await Promise.all(
-    genusOrHigher.map(t => fetchTaxonWithCommonName(t.key))
+  // Filter to taxonomic ranks we're interested in
+  return data.results.filter(t =>
+    ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY", "GENUS"].includes(t.rank)
   );
-
-  return withCommonNames;
 }
 
 async function fetchTaxonWithCommonName(taxonKey) {
