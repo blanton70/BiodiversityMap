@@ -4,9 +4,9 @@ const rankOrder = ["DOMAIN", "KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY", "G
 initRoot();
 
 async function initRoot() {
-  const children = await fetchChildren(0, null); // null rank since this is the root
-  for (const child of children) {
-    createNode(child, container, 0);
+  const rootTaxa = await fetchKingdoms();
+  for (const taxon of rootTaxa) {
+    createNode(taxon, container, 0);
   }
 }
 
@@ -47,13 +47,26 @@ async function createNode(taxon, parentElement, depth) {
   if (!hasChildren) toggle.classList.add("invisible");
 }
 
+// 📥 Get top-level Kingdoms to start
+async function fetchKingdoms() {
+  const url = `https://api.gbif.org/v1/species/search?rank=KINGDOM&limit=100`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  return Promise.all(
+    data.results.map(t =>
+      fetchTaxonWithCommonName(t.key)
+    )
+  );
+}
+
+// 📥 Load next rank children
 async function fetchChildren(taxonKey, parentRank) {
   const url = `https://api.gbif.org/v1/species/${taxonKey}/children?limit=1000`;
   const res = await fetch(url);
   const data = await res.json();
 
-  // Only include children that are exactly one rank below the parent
-  let targetRankIndex = parentRank ? rankOrder.indexOf(parentRank) + 1 : 1; // Start with KINGDOM after root
+  let targetRankIndex = parentRank ? rankOrder.indexOf(parentRank) + 1 : 1;
   const targetRank = rankOrder[targetRankIndex];
 
   const filtered = data.results.filter(t => t.rank === targetRank);
