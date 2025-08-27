@@ -172,11 +172,13 @@ if st.session_state.get("plot_trigger", False):
 def compute_hex_richness(coords, resolution=3):
     bins = defaultdict(set)
     for lat, lon in coords:
-        hex_id = h3.geo_to_h3shape(lat, lon, resolution)
-        bins[hex_id].add((lat, lon))  # could add species name if known
+        # Convert lat/lon to H3 cell at the specified resolution
+        hex_id = h3.latlng_to_cell(lat, lon, resolution)
+        bins[hex_id].add((lat, lon))  # Store the coordinates in the corresponding hexagon
     data = []
     for h, points in bins.items():
-        lat, lon = h3.h3shape_to_geo(h)
+        # Convert H3 cell back to lat/lon
+        lat, lon = h3.cell_to_latlng(h)
         data.append({
             "hex": h,
             "lat": lat,
