@@ -13,6 +13,23 @@ st.title("🌳 Tree of Life — Taxonomic Browser")
 RANK_ORDER = ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY"]
 ROOT_TAXA = ["Animalia", "Plantae", "Fungi", "Bacteria", "Protozoa", "Chromista"]
 
+# Global UI tweaks
+st.markdown("""
+    <style>
+    .stCheckbox > div {
+        padding-top: 0.1rem;
+        padding-bottom: 0.1rem;
+    }
+    .stMarkdown p {
+        margin-bottom: 0.1rem;
+    }
+    label, input, div {
+        font-size: 13px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
 # -------------------------------
 # Utilities
 # -------------------------------
