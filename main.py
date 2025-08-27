@@ -96,6 +96,9 @@ def render_node(taxon, depth=0):
                     child_taxon = fetch_taxon(child["key"])
                     render_node(child_taxon, depth + 1)
 
+st.markdown("---")
+if st.button("🗺️ Map Selected Families"):
+    st.session_state["plot_trigger"] = True
 
 # -------------------------------
 # Session State Init
