@@ -1,142 +1,143 @@
 import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
 import plotly.express as px
 import h3
 from collections import defaultdict
 
 st.set_page_config(layout="wide")
-st.title("🌍 Tree of Life + Species Richness Hex Map")
 
-# ------------------ UTILS ------------------
+# --------- Sidebar Style & State ---------
+st.markdown("""
+<style>
+.sidebar .sidebar-content {
+    width: 400px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-def gbif_match(name):
-    res = requests.get(f"https://api.gbif.org/v1/species/match?name={name}").json()
-    return res.get("usageKey")
+st.sidebar.title("🌳 Tree of Life")
+st.sidebar.write("Select taxonomic families to map species richness.")
 
-def gbif_children(parent_key):
-    res = requests.get(f"https://api.gbif.org/v1/species/{parent_key}/children?limit=1000").json()
-    return res.get("results", [])
+# --------- Taxonomic Tree Navigation ---------
+RANK_ORDER = ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY"]
+ROOT_TAXA = ["Animalia", "Plantae", "Fungi", "Bacteria", "Protozoa", "Chromista"]
 
-def get_taxonomy_levels(start_key, depth=5):
-    tree = []
-    queue = [(start_key, 0)]
-    while queue:
-        key, level = queue.pop(0)
-        if level >= depth:
-            continue
-        children = gbif_children(key)
-        tree.append((level, key, children))
+@st.cache_data(show_spinner=False)
+def match_taxon(name):
+    res = requests.get(f"https://api.gbif.org/v1/species/match?name={name}")
+    data = res.json()
+    if data.get("usageKey"):
+        return fetch_taxon(data["usageKey"])
+    return None
+
+@st.cache_data(show_spinner=False)
+def fetch_taxon(key):
+    res = requests.get(f"https://api.gbif.org/v1/species/{key}")
+    data = res.json()
+    return {
+        "key": data["key"],
+        "scientificName": data["scientificName"],
+        "commonName": data.get("vernacularName", None),
+        "rank": data["rank"]
+    }
+
+@st.cache_data(show_spinner=False)
+def fetch_children(taxon_key):
+    res = requests.get(f"https://api.gbif.org/v1/species/{taxon_key}/children?limit=1000")
+    return res.json()["results"]
+
+def get_next_rank(rank):
+    try:
+        idx = RANK_ORDER.index(rank)
+        return RANK_ORDER[idx + 1] if idx + 1 < len(RANK_ORDER) else None
+    except ValueError:
+        return None
+
+def render_node(taxon, depth=0):
+    label = f"{taxon['scientificName']} ({taxon['commonName']})" if taxon["commonName"] else taxon["scientificName"]
+    indent = " " * (depth * 2)
+
+    key = f"{taxon['key']}_{depth}"
+    expanded = st.sidebar.expander(f"{indent}📁 {label}", expanded=False)
+
+    if taxon["rank"] == "FAMILY":
+        selected = expanded.checkbox("Select family", key=key)
+        if selected:
+            st.session_state["selected_families"].add(taxon["key"])
+
+    next_rank = get_next_rank(taxon["rank"])
+    if next_rank:
+        children = fetch_children(taxon["key"])
         for child in children:
-            queue.append((child["key"], level + 1))
-    return tree
+            if child.get("rank") == next_rank:
+                child_taxon = fetch_taxon(child["key"])
+                render_node(child_taxon, depth + 1)
 
-# ------------------ SIDEBAR TAXONOMY BROWSER ------------------
+# Initialize session state for selection
+if "selected_families" not in st.session_state:
+    st.session_state["selected_families"] = set()
 
-st.sidebar.header("📚 Taxonomic Tree")
-root_taxa = ["Animalia", "Plantae", "Fungi", "Bacteria", "Protozoa", "Chromista"]
-selected_families = []
+# Build tree
+for root_name in ROOT_TAXA:
+    root_taxon = match_taxon(root_name)
+    if root_taxon:
+        render_node(root_taxon)
 
-def browse_tree(name, level=0):
-    key = gbif_match(name)
-    if not key:
-        return
-    children = gbif_children(key)
-    grouped = defaultdict(list)
-    for c in children:
-        grouped[c["rank"]].append(c)
-    
-    rank_order = ["PHYLUM", "CLASS", "ORDER", "FAMILY"]
-    next_rank = rank_order[level] if level < len(rank_order) else None
+# --------- MAP & HEXBIN PLOTTING ---------
+st.title("📍 GBIF Species Occurrence Map")
 
-    for taxon in sorted(grouped.get(next_rank, []), key=lambda x: x["scientificName"]):
-        label = f'{"  " * level}- {taxon["scientificName"]}'
-        if taxon["rank"] == "FAMILY":
-            if st.sidebar.checkbox(label, key=taxon["key"]):
-                selected_families.append((taxon["key"], taxon["scientificName"]))
-        else:
-            if st.sidebar.expander(label, expanded=False):
-                browse_tree(taxon["scientificName"], level + 1)
-
-for root in root_taxa:
-    with st.sidebar.expander(root, expanded=False):
-        browse_tree(root)
-
-# ------------------ MAP + RICHNESS ------------------
-
-def fetch_occurrences(family_key):
-    url = f"https://api.gbif.org/v1/occurrence/search?taxonKey={family_key}&hasCoordinate=true&limit=300"
-    all_results = []
-    offset = 0
-    max_records = 2000
-    while offset < max_records:
-        try:
-            r = requests.get(url + f"&offset={offset}").json()
-            results = r.get("results", [])
-            if not results:
-                break
-            all_results.extend(results)
-            offset += len(results)
-        except:
-            break
-    return all_results
-
-def compute_hex_richness(records, resolution=4):
-    hex_map = defaultdict(set)
-    for rec in records:
-        try:
-            lat = rec["decimalLatitude"]
-            lon = rec["decimalLongitude"]
-            species = rec.get("species", "Unknown species")
-            h = h3.geo_to_h3(lat, lon, resolution)
-            hex_map[h].add(species)
-        except:
+def fetch_occurrences(taxon_key, max_records=2000):
+    all_coords = []
+    limit = 300
+    for offset in range(0, max_records, limit):
+        url = f"https://api.gbif.org/v1/occurrence/search?taxonKey={taxon_key}&hasCoordinate=true&limit={limit}&offset={offset}"
+        res = requests.get(url)
+        if res.status_code != 200:
             continue
+        data = res.json().get("results", [])
+        coords = [
+            (rec["decimalLatitude"], rec["decimalLongitude"])
+            for rec in data
+            if "decimalLatitude" in rec and "decimalLongitude" in rec
+        ]
+        all_coords.extend(coords)
+    return all_coords
+
+def compute_hex_richness(coords, resolution=3):
+    bins = defaultdict(set)
+    for lat, lon in coords:
+        hex_id = h3.geo_to_h3(lat, lon, resolution)
+        bins[hex_id].add((lat, lon))  # could add species name if known
     data = []
-    for h, species_set in hex_map.items():
+    for h, points in bins.items():
         lat, lon = h3.h3_to_geo(h)
         data.append({
             "hex": h,
             "lat": lat,
             "lon": lon,
-            "richness": len(species_set),
-            "species_list": ", ".join(sorted(species_set))[:500]
+            "richness": len(points),
+            "species": points
         })
     return pd.DataFrame(data)
 
-# ------------------ MAIN ------------------
+if st.button("📊 Map Selected Families"):
+    all_coords = []
+    for taxon_key in st.session_state["selected_families"]:
+        coords = fetch_occurrences(taxon_key)
+        all_coords.extend(coords)
 
-if selected_families:
-    st.subheader("🧬 Selected Families")
-    st.markdown(", ".join([f[1] for f in selected_families]))
-
-    all_records = []
-    for key, name in selected_families:
-        st.write(f"Fetching: {name}")
-        occ = fetch_occurrences(key)
-        for o in occ:
-            o["familyName"] = name
-        all_records.extend(occ)
-
-    if not all_records:
-        st.warning("No occurrence data found.")
-    else:
-        df = compute_hex_richness(all_records)
+    if all_coords:
+        df = compute_hex_richness(all_coords)
 
         fig = px.density_mapbox(
-            df,
-            lat="lat",
-            lon="lon",
-            z="richness",
-            hover_data=["richness", "species_list"],
-            radius=10,
-            center=dict(lat=20, lon=0),
-            zoom=1,
-            mapbox_style="carto-positron",
-            title="Species Richness Hex Map"
+            df, lat="lat", lon="lon", z="richness",
+            radius=10, center=dict(lat=20, lon=0), zoom=1,
+            mapbox_style="open-street-map", hover_name="richness",
+            title="Species Richness per Hex Tile"
         )
-        st.plotly_chart(fig, use_container_width=True)
 
-else:
-    st.info("Select at least one family from the tree to render the map.")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No valid coordinates found.")
 
