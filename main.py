@@ -4,24 +4,24 @@ import pandas as pd
 import plotly.express as px
 import h3
 from collections import defaultdict
+import streamlit as st
+import requests
 
 st.set_page_config(layout="wide")
+st.title("🌳 Tree of Life — Taxonomic Browser")
 
-# --------- Sidebar Style & State ---------
-st.markdown("""
-<style>
-.sidebar .sidebar-content {
-    width: 400px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.sidebar.title("🌳 Tree of Life")
-st.sidebar.write("Select taxonomic families to map species richness.")
-
-# --------- Taxonomic Tree Navigation ---------
 RANK_ORDER = ["KINGDOM", "PHYLUM", "CLASS", "ORDER", "FAMILY"]
 ROOT_TAXA = ["Animalia", "Plantae", "Fungi", "Bacteria", "Protozoa", "Chromista"]
+
+# -------------------------------
+# Utilities
+# -------------------------------
+def get_next_rank(rank):
+    try:
+        idx = RANK_ORDER.index(rank)
+        return RANK_ORDER[idx + 1] if idx + 1 < len(RANK_ORDER) else None
+    except ValueError:
+        return None
 
 @st.cache_data(show_spinner=False)
 def match_taxon(name):
@@ -45,44 +45,57 @@ def fetch_taxon(key):
 @st.cache_data(show_spinner=False)
 def fetch_children(taxon_key):
     res = requests.get(f"https://api.gbif.org/v1/species/{taxon_key}/children?limit=1000")
-    return res.json()["results"]
+    return res.json().get("results", [])
 
-def get_next_rank(rank):
-    try:
-        idx = RANK_ORDER.index(rank)
-        return RANK_ORDER[idx + 1] if idx + 1 < len(RANK_ORDER) else None
-    except ValueError:
-        return None
-
+# -------------------------------
+# Recursive Tree Renderer
+# -------------------------------
 def render_node(taxon, depth=0):
-    label = f"{taxon['scientificName']} ({taxon['commonName']})" if taxon["commonName"] else taxon["scientificName"]
-    indent = " " * (depth * 2)
+    label = f"{taxon['scientificName']}"
+    if taxon["commonName"]:
+        label += f" ({taxon['commonName']})"
 
     key = f"{taxon['key']}_{depth}"
-    expanded = st.sidebar.expander(f"{indent}📁 {label}", expanded=False)
 
-    if taxon["rank"] == "FAMILY":
-        selected = expanded.checkbox("Select family", key=key)
-        if selected:
-            st.session_state["selected_families"].add(taxon["key"])
+    with st.expander("  " * depth + "📁 " + label, expanded=False):
+        if taxon["rank"] == "FAMILY":
+            selected = st.checkbox("Select family", key=key)
+            if selected:
+                st.session_state["selected_families"].add(taxon["key"])
 
-    next_rank = get_next_rank(taxon["rank"])
-    if next_rank:
-        children = fetch_children(taxon["key"])
-        for child in children:
-            if child.get("rank") == next_rank:
-                child_taxon = fetch_taxon(child["key"])
-                render_node(child_taxon, depth + 1)
+        next_rank = get_next_rank(taxon["rank"])
+        if next_rank:
+            children = fetch_children(taxon["key"])
+            for child in children:
+                if child.get("rank") == next_rank:
+                    child_taxon = fetch_taxon(child["key"])
+                    render_node(child_taxon, depth + 1)
 
-# Initialize session state for selection
+# -------------------------------
+# Session State Init
+# -------------------------------
 if "selected_families" not in st.session_state:
     st.session_state["selected_families"] = set()
 
-# Build tree
-for root_name in ROOT_TAXA:
-    root_taxon = match_taxon(root_name)
-    if root_taxon:
-        render_node(root_taxon)
+# -------------------------------
+# Sidebar Layout
+# -------------------------------
+with st.sidebar:
+    st.header("🌿 Taxonomic Tree")
+    for root in ROOT_TAXA:
+        root_taxon = match_taxon(root)
+        if root_taxon:
+            render_node(root_taxon, depth=0)
+
+    st.markdown("---")
+    if st.session_state["selected_families"]:
+        st.markdown("### ✅ Selected Families")
+        for key in st.session_state["selected_families"]:
+            st.markdown(f"- Taxon Key: `{key}`")
+    else:
+        st.info("No families selected yet.")
+
+
 
 # --------- MAP & HEXBIN PLOTTING ---------
 st.title("📍 GBIF Species Occurrence Map")
