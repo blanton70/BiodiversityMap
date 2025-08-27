@@ -128,8 +128,24 @@ with st.sidebar:
 
 # --------- MAP & HEXBIN PLOTTING ---------
 st.title("📍 GBIF Species Occurrence Map")
-st.title("📍 GBIF Species Occurrence Map")
 
+def fetch_occurrences(taxon_key, max_records=2000):
+    all_coords = []
+    limit = 300
+    for offset in range(0, max_records, limit):
+        url = f"https://api.gbif.org/v1/occurrence/search?taxonKey={taxon_key}&hasCoordinate=true&limit={limit}&offset={offset}"
+        res = requests.get(url)
+        if res.status_code != 200:
+            continue
+        data = res.json().get("results", [])
+        coords = [
+            (rec["decimalLatitude"], rec["decimalLongitude"])
+            for rec in data
+            if "decimalLatitude" in rec and "decimalLongitude" in rec
+        ]
+        all_coords.extend(coords)
+    return all_coords
+    
 if st.session_state.get("plot_trigger", False):
     st.session_state["plot_trigger"] = False  # Reset
 
@@ -152,22 +168,6 @@ if st.session_state.get("plot_trigger", False):
         st.warning("No valid coordinates found.")
 
 
-def fetch_occurrences(taxon_key, max_records=2000):
-    all_coords = []
-    limit = 300
-    for offset in range(0, max_records, limit):
-        url = f"https://api.gbif.org/v1/occurrence/search?taxonKey={taxon_key}&hasCoordinate=true&limit={limit}&offset={offset}"
-        res = requests.get(url)
-        if res.status_code != 200:
-            continue
-        data = res.json().get("results", [])
-        coords = [
-            (rec["decimalLatitude"], rec["decimalLongitude"])
-            for rec in data
-            if "decimalLatitude" in rec and "decimalLongitude" in rec
-        ]
-        all_coords.extend(coords)
-    return all_coords
 
 def compute_hex_richness(coords, resolution=3):
     bins = defaultdict(set)
