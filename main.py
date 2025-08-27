@@ -128,6 +128,29 @@ with st.sidebar:
 
 # --------- MAP & HEXBIN PLOTTING ---------
 st.title("📍 GBIF Species Occurrence Map")
+st.title("📍 GBIF Species Occurrence Map")
+
+if st.session_state.get("plot_trigger", False):
+    st.session_state["plot_trigger"] = False  # Reset
+
+    all_coords = []
+    for taxon_key in st.session_state["selected_families"]:
+        coords = fetch_occurrences(taxon_key)
+        all_coords.extend(coords)
+
+    if all_coords:
+        df = compute_hex_richness(all_coords)
+
+        fig = px.density_mapbox(
+            df, lat="lat", lon="lon", z="richness",
+            radius=10, center=dict(lat=20, lon=0), zoom=1,
+            mapbox_style="open-street-map", hover_name="richness",
+            title="Species Richness per Hex Tile"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No valid coordinates found.")
+
 
 def fetch_occurrences(taxon_key, max_records=2000):
     all_coords = []
