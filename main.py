@@ -51,25 +51,34 @@ def fetch_children(taxon_key):
 # Recursive Tree Renderer
 # -------------------------------
 def render_node(taxon, depth=0):
+    indent = "&nbsp;" * (depth * 4)
     label = f"{taxon['scientificName']}"
     if taxon["commonName"]:
         label += f" ({taxon['commonName']})"
+    next_rank = get_next_rank(taxon["rank"])
 
     key = f"{taxon['key']}_{depth}"
 
-    with st.expander("  " * depth + "📁 " + label, expanded=False):
-        if taxon["rank"] == "FAMILY":
-            selected = st.checkbox("Select family", key=key)
-            if selected:
-                st.session_state["selected_families"].add(taxon["key"])
+    # Checkbox for FAMILY level
+    if taxon["rank"] == "FAMILY":
+        checked = st.checkbox(f"{indent}{label}", key=key)
+        if checked:
+            st.session_state["selected_families"].add(taxon["key"])
+    else:
+        with st.container():
+            col1, col2 = st.columns([0.05, 0.95])
+            with col1:
+                expand = st.toggle("", key=f"toggle_{key}", label_visibility="collapsed")
+            with col2:
+                st.markdown(f"{indent}**{label}**", unsafe_allow_html=True)
 
-        next_rank = get_next_rank(taxon["rank"])
-        if next_rank:
+        if expand and next_rank:
             children = fetch_children(taxon["key"])
             for child in children:
                 if child.get("rank") == next_rank:
                     child_taxon = fetch_taxon(child["key"])
                     render_node(child_taxon, depth + 1)
+
 
 # -------------------------------
 # Session State Init
@@ -154,3 +163,10 @@ if st.button("📊 Map Selected Families"):
     else:
         st.warning("No valid coordinates found.")
 
+with st.sidebar:
+    st.markdown("<style>label, input, div { font-size: 12px !important; }</style>", unsafe_allow_html=True)
+    st.header("🌿 Taxonomic Tree", divider="gray")
+    for root in ROOT_TAXA:
+        root_taxon = match_taxon(root)
+        if root_taxon:
+            render_node(root_taxon, depth=0)
