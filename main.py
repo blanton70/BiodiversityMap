@@ -163,10 +163,4 @@ if st.button("📊 Map Selected Families"):
     else:
         st.warning("No valid coordinates found.")
 
-with st.sidebar:
-    st.markdown("<style>label, input, div { font-size: 12px !important; }</style>", unsafe_allow_html=True)
-    st.header("🌿 Taxonomic Tree", divider="gray")
-    for root in ROOT_TAXA:
-        root_taxon = match_taxon(root)
-        if root_taxon:
-            render_node(root_taxon, depth=0)
+
